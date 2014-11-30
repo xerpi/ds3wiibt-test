@@ -2,12 +2,10 @@
 #define ds3wiibt_H
 
 #include <gccore.h>
-#include "l2cap.h"
+#include <bte/l2cap.h>
 
 #undef LOG
 #define LOG printf
-
-#define SDP_PSM 0x01
 
 typedef void (*ds3wiibt_cb)(void *usrdata);
 
@@ -49,33 +47,33 @@ struct ds3wiibt_input {
 	unsigned char leftY;
 	unsigned char rightX;
 	unsigned char rightY;
-	
+
 	unsigned int unk2;
-	
+
 	struct {
 		unsigned char up_sens;
 		unsigned char right_sens;
 		unsigned char down_sens;
 		unsigned char left_sens;
 	};
-	
+
 	struct {
 		unsigned char L2_sens;
 		unsigned char R2_sens;
 		unsigned char L1_sens;
 		unsigned char R1_sens;
 	};
-	
+
 	struct {
 		unsigned char triangle_sens;
 		unsigned char circle_sens;
 		unsigned char cross_sens;
 		unsigned char square_sens;
 	};
-	
+
 	unsigned short unk3;
 	unsigned char  unk4;
-	
+
 	unsigned char status;
 	unsigned char power_rating;
 	unsigned char comm_status;
@@ -113,7 +111,7 @@ struct ds3wiibt_context {
 };
 
 void ds3wiibt_initialize(struct ds3wiibt_context *ctx);
-void ds3wiibt_set_user_data(struct ds3wiibt_context *ctx, void *data);
+void ds3wiibt_set_userdata(struct ds3wiibt_context *ctx, void *data);
 void ds3wiibt_set_connect_cb(struct ds3wiibt_context *ctx, ds3wiibt_cb cb);
 void ds3wiibt_set_disconnect_cb(struct ds3wiibt_context *ctx, ds3wiibt_cb cb);
 void ds3wiibt_set_led(struct ds3wiibt_context *ctx, u8 led);
@@ -122,7 +120,7 @@ void ds3wiibt_send_ledsrumble(struct ds3wiibt_context *ctx);
 void ds3wiibt_connect(struct ds3wiibt_context *ctx, struct bd_addr *addr);
 void ds3wiibt_close(struct ds3wiibt_context *ctx);
 
-#define is_connected(ctxp) \
+#define ds3wiibt_is_connected(ctxp) \
 	((ctxp)->status == DS3WIIBT_STATUS_CONNECTED)
 
 #endif

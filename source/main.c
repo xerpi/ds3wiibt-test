@@ -27,7 +27,7 @@ int main(int argc, char *argv[])
 
 	struct ds3wiibt_context ctx;
 	ds3wiibt_initialize(&ctx);
-	ds3wiibt_set_user_data(&ctx, NULL);
+	ds3wiibt_set_userdata(&ctx, NULL);
 	ds3wiibt_set_connect_cb(&ctx, conn_cb);
 	ds3wiibt_set_disconnect_cb(&ctx, discon_cb);
 
@@ -36,20 +36,11 @@ int main(int argc, char *argv[])
 	ds3wiibt_connect(&ctx, &addr);
 	printf("Listening for an incoming connection...\n");
 	
-	int inited = 0;
-	
 	while (run) {
 		WPAD_ScanPads();
 		u32 pressed = WPAD_ButtonsDown(0);
 		if (pressed & WPAD_BUTTON_HOME) run = 0;
-		if (is_connected(&ctx)) {
-			if (!inited) {
-				usleep(200*1000);
-				set_operational(&ctx);
-				usleep(200*1000);
-				ds3wiibt_send_ledsrumble(&ctx);
-				inited = 1;
-			}
+		if (ds3wiibt_is_connected(&ctx)) {
 			print_data(&ctx.input);
 			if (ctx.input.PS && ctx.input.start) run = 0;
 		}

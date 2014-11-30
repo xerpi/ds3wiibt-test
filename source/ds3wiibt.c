@@ -1,13 +1,18 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <ogc/machine/processor.h>
 #include <bte/bte.h>
+#include <bte/l2cap.h>
+#include <bte/btpbuf.h>
 #include "ds3wiibt.h"
-#include "hci.h"
-#include "btpbuf.h"
+
+static const unsigned char led_pattern[] = {
+	0x0, 0x02, 0x04, 0x08, 0x10, 0x12, 0x14, 0x18, 0x1A, 0x1C, 0x1E
+};
 
 static int senddata_raw(struct l2cap_pcb *pcb, const void *message, u16 len);
-int set_operational(struct ds3wiibt_context *ctx);
+static int set_operational(struct ds3wiibt_context *ctx);
 static int send_output_report(struct ds3wiibt_context *ctx);
 static void correct_input(struct ds3wiibt_input *inp);
 
@@ -24,7 +29,7 @@ void ds3wiibt_initialize(struct ds3wiibt_context *ctx)
 	ctx->data_pcb = NULL;
 	memset(&ctx->bdaddr, 0, sizeof(ctx->bdaddr));
 	memset(&ctx->input,  0, sizeof(ctx->input));
-	ds3wiibt_set_led(ctx, 0x02);
+	ds3wiibt_set_led(ctx, 1);
 	ds3wiibt_set_rumble(ctx, 0x00, 0x00, 0x00, 0x00);
 	ctx->usrdata = NULL;
 	ctx->connect_cb = NULL;
@@ -32,7 +37,7 @@ void ds3wiibt_initialize(struct ds3wiibt_context *ctx)
 	ctx->status = DS3WIIBT_STATUS_DISCONNECTED;
 }
 
-void ds3wiibt_set_user_data(struct ds3wiibt_context *ctx, void *data)
+void ds3wiibt_set_userdata(struct ds3wiibt_context *ctx, void *data)
 {
 	ctx->usrdata = data;
 }
@@ -95,7 +100,7 @@ void ds3wiibt_close(struct ds3wiibt_context *ctx)
 	ds3wiibt_set_led(ctx, 0);
 	ds3wiibt_set_rumble(ctx, 0x00, 0x00, 0x00, 0x00);
 	ds3wiibt_send_ledsrumble(ctx);
-	if (is_connected(ctx)) {
+	if (ds3wiibt_is_connected(ctx)) {
 		if (ctx->ctrl_pcb) l2ca_disconnect_req(ctx->ctrl_pcb, l2ca_disconnect_cfm_cb);
 		if (ctx->data_pcb) l2ca_disconnect_req(ctx->data_pcb, l2ca_disconnect_cfm_cb);
 	} else {
@@ -104,7 +109,7 @@ void ds3wiibt_close(struct ds3wiibt_context *ctx)
 		ctx->ctrl_pcb = NULL;
 		ctx->data_pcb = NULL;
 	}
-	while (is_connected(ctx)) usleep(50);
+	while (ds3wiibt_is_connected(ctx)) usleep(50);
 }
 
 static err_t l2ca_recv_cb(void *arg, struct l2cap_pcb *pcb, struct pbuf *p, err_t err)
@@ -113,12 +118,24 @@ static err_t l2ca_recv_cb(void *arg, struct l2cap_pcb *pcb, struct pbuf *p, err_
 	if (ctx == NULL || pcb == NULL || err != ERR_OK) return -1;
 
 	u8 *rd = p->payload;
-	
+
 	//LOG("RECV, PSM: 0x%02X  len: %i |", l2cap_psm(pcb), p->len);
 	//LOG(" 0x%X  0x%X  0x%X  0x%X  0x%X\n", rd[0], rd[1], rd[2], rd[3], rd[4]);
-	
+
 	switch (l2cap_psm(pcb))	{
 	case HIDP_PSM:
+		switch (rd[0]) {
+		case 0x00:
+			if (ctx->status == DS3WIIBT_STATUS_DISCONNECTED) {
+				send_output_report(ctx);
+				ctx->status = DS3WIIBT_STATUS_CONNECTED;
+				if (ctx->connect_cb != NULL) {
+					//Notify the user
+					ctx->connect_cb(ctx->usrdata);
+				}
+			}
+			break;
+		}
 		break;
 	case INTR_PSM:
 		switch (rd[1]) {
@@ -128,7 +145,6 @@ static err_t l2ca_recv_cb(void *arg, struct l2cap_pcb *pcb, struct pbuf *p, err_
 		}
 		break;
 	}
-
 	return ERR_OK;
 }
 
@@ -137,29 +153,16 @@ static err_t l2ca_connect_ind_cb(void *arg, struct l2cap_pcb *pcb, err_t err)
 	struct ds3wiibt_context *ctx = (struct ds3wiibt_context *)arg;
 	if (ctx == NULL || pcb == NULL) return -1;
 	
-	LOG("l2ca_connect_ind_cb, PSM: 0x%02X\n", l2cap_psm(pcb));
+	//LOG("l2ca_connect_ind_cb, PSM: 0x%02X\n", l2cap_psm(pcb));
 	
 	if (l2cap_psm(pcb) == HIDP_PSM) {
 		/* Control PSM is connected */
-		LOG("Waiting for a DATA connection request ..\n");
 		l2cap_recv(ctx->ctrl_pcb, l2ca_recv_cb);
 	} else if (l2cap_psm(pcb) == INTR_PSM) {
-		LOG("Got DATA connection!\n");
-		LOG("Set operational\n");
-		//usleep(200*1000);
-		//set_operational(ctx);
-		LOG("Output Report\n");
-		//usleep(200*1000);
-		//send_output_report(ctx);
+		/* Both Control PSM and Data PSM are connected */
 		l2cap_recv(ctx->data_pcb, l2ca_recv_cb);
-		
-		ctx->status = DS3WIIBT_STATUS_CONNECTED;
-		if (ctx->connect_cb != NULL) {
-			//Notify the user
-			ctx->connect_cb(ctx->usrdata);
-		}
+		set_operational(ctx);
 	}
-	
 	return ERR_OK;
 }
 
@@ -223,6 +226,7 @@ static err_t l2ca_disconnect_cfm_cb(void *arg, struct l2cap_pcb *pcb)
 		ctx->data_pcb = NULL;
 		break;
 	}
+
 	//User has finished it, so don't listen again
 	if ((ctx->ctrl_pcb == NULL) && (ctx->data_pcb == NULL)) {
 		ctx->status = DS3WIIBT_STATUS_DISCONNECTED;
@@ -265,7 +269,7 @@ static int senddata_raw(struct l2cap_pcb *pcb, const void *message, u16 len)
 	return err;
 }
 
-int set_operational(struct ds3wiibt_context *ctx)
+static int set_operational(struct ds3wiibt_context *ctx)
 {
 	static const unsigned char buf[] ATTRIBUTE_ALIGN(32) = {
 		(HIDP_TRANS_SETREPORT | HIDP_DATA_RTYPE_FEATURE),
@@ -294,7 +298,7 @@ static int send_output_report(struct ds3wiibt_context *ctx)
 	buf[4] = ctx->rumble.power_right;
 	buf[5] = ctx->rumble.duration_left;
 	buf[6] = ctx->rumble.power_left;
-	buf[11] = ctx->led;
+	buf[11] = led_pattern[ctx->led%11];
 
 	return senddata_raw(ctx->ctrl_pcb, buf, sizeof(buf));
 }
