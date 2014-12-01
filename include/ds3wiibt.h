@@ -11,7 +11,10 @@ typedef void (*ds3wiibt_cb)(void *usrdata);
 
 enum ds3wiibt_status {
 	DS3WIIBT_STATUS_DISCONNECTED,
+	DS3WIIBT_STATUS_LISTENING,
+	DS3WIIBT_STATUS_CONNECTING,
 	DS3WIIBT_STATUS_CONNECTED,
+	DS3WIIBT_STATUS_DISCONNECTING
 };
 
 struct ds3wiibt_input {
@@ -110,15 +113,15 @@ struct ds3wiibt_context {
 	enum ds3wiibt_status status;
 };
 
-void ds3wiibt_initialize(struct ds3wiibt_context *ctx);
+void ds3wiibt_initialize(struct ds3wiibt_context *ctx, struct bd_addr *addr);
 void ds3wiibt_set_userdata(struct ds3wiibt_context *ctx, void *data);
 void ds3wiibt_set_connect_cb(struct ds3wiibt_context *ctx, ds3wiibt_cb cb);
 void ds3wiibt_set_disconnect_cb(struct ds3wiibt_context *ctx, ds3wiibt_cb cb);
 void ds3wiibt_set_led(struct ds3wiibt_context *ctx, u8 led);
 void ds3wiibt_set_rumble(struct ds3wiibt_context *ctx, u8 duration_right, u8 power_right, u8 duration_left, u8 power_left);
 void ds3wiibt_send_ledsrumble(struct ds3wiibt_context *ctx);
-void ds3wiibt_connect(struct ds3wiibt_context *ctx, struct bd_addr *addr);
-void ds3wiibt_close(struct ds3wiibt_context *ctx);
+void ds3wiibt_listen(struct ds3wiibt_context *ctx);
+void ds3wiibt_disconnect(struct ds3wiibt_context *ctx);
 
 #define ds3wiibt_is_connected(ctxp) \
 	((ctxp)->status == DS3WIIBT_STATUS_CONNECTED)

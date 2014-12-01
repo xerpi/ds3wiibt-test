@@ -26,15 +26,15 @@ int main(int argc, char *argv[])
 
 
 	struct ds3wiibt_context ctx;
-	ds3wiibt_initialize(&ctx);
+	ds3wiibt_initialize(&ctx, &addr);
 	ds3wiibt_set_userdata(&ctx, NULL);
 	ds3wiibt_set_connect_cb(&ctx, conn_cb);
 	ds3wiibt_set_disconnect_cb(&ctx, discon_cb);
 
-	LOG("Connecting to: ");
+	LOG("Listening to: ");
 	print_mac((struct bd_addr*)addr.addr);
-	ds3wiibt_connect(&ctx, &addr);
 	printf("Listening for an incoming connection...\n");
+	ds3wiibt_listen(&ctx);
 	
 	while (run) {
 		WPAD_ScanPads();
@@ -42,11 +42,11 @@ int main(int argc, char *argv[])
 		if (pressed & WPAD_BUTTON_HOME) run = 0;
 		if (ds3wiibt_is_connected(&ctx)) {
 			print_data(&ctx.input);
-			if (ctx.input.PS && ctx.input.start) run = 0;
+			if (ctx.input.PS && ctx.input.start) ds3wiibt_disconnect(&ctx);
 		}
 		flip_screen();
 	}
-	//ds3wiibt_close(&ctx);
+	ds3wiibt_disconnect(&ctx);
 	return 0;
 }
 

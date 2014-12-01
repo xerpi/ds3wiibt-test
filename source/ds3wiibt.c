@@ -23,11 +23,9 @@ static err_t l2ca_disconnect_cfm_cb(void *arg, struct l2cap_pcb *pcb);
 static err_t l2ca_timeout_ind_cb(void *arg, struct l2cap_pcb *pcb, err_t err);
 static err_t l2ca_recv_cb(void *arg, struct l2cap_pcb *pcb, struct pbuf *p, err_t err);
 
-void ds3wiibt_initialize(struct ds3wiibt_context *ctx)
+void ds3wiibt_initialize(struct ds3wiibt_context *ctx, struct bd_addr *addr)
 {
-	ctx->ctrl_pcb = NULL;
-	ctx->data_pcb = NULL;
-	memset(&ctx->bdaddr, 0, sizeof(ctx->bdaddr));
+	bd_addr_set(&ctx->bdaddr, addr);
 	memset(&ctx->input,  0, sizeof(ctx->input));
 	ds3wiibt_set_led(ctx, 1);
 	ds3wiibt_set_rumble(ctx, 0x00, 0x00, 0x00, 0x00);
@@ -70,46 +68,27 @@ void ds3wiibt_send_ledsrumble(struct ds3wiibt_context *ctx)
 	send_output_report(ctx);
 }
 
-void ds3wiibt_connect(struct ds3wiibt_context *ctx, struct bd_addr *addr)
+void ds3wiibt_listen(struct ds3wiibt_context *ctx)
 {
 	u32 level = IRQ_Disable();
-	
-	bd_addr_set(&ctx->bdaddr, addr);
-
-	ctx->ctrl_pcb = l2cap_new();
-	ctx->data_pcb = l2cap_new();
-	
-	l2cap_arg(ctx->ctrl_pcb, ctx);
-	l2cap_arg(ctx->data_pcb, ctx);
-	
-	l2cap_disconnect_ind(ctx->ctrl_pcb, l2ca_disconnect_ind_cb);
-	l2cap_disconnect_ind(ctx->data_pcb, l2ca_disconnect_ind_cb);
-	
-	l2cap_timeout_ind(ctx->ctrl_pcb, l2ca_timeout_ind_cb);
-	l2cap_timeout_ind(ctx->data_pcb, l2ca_timeout_ind_cb);
-	
-	l2cap_connect_ind(ctx->ctrl_pcb,  &ctx->bdaddr, HIDP_PSM, l2ca_connect_ind_cb);
-	l2cap_connect_ind(ctx->data_pcb,  &ctx->bdaddr, INTR_PSM, l2ca_connect_ind_cb);
-
+	if (ctx->status == DS3WIIBT_STATUS_DISCONNECTED) {
+		ctx->ctrl_pcb = l2cap_new();
+		ctx->data_pcb = l2cap_new();
+		l2cap_arg(ctx->ctrl_pcb, ctx);
+		l2cap_arg(ctx->data_pcb, ctx);
+		l2cap_connect_ind(ctx->ctrl_pcb,  &ctx->bdaddr, HIDP_PSM, l2ca_connect_ind_cb);
+		l2cap_connect_ind(ctx->data_pcb, &ctx->bdaddr, INTR_PSM, l2ca_connect_ind_cb);
+	}
 	IRQ_Restore(level);
 }
 
-void ds3wiibt_close(struct ds3wiibt_context *ctx)
+void ds3wiibt_disconnect(struct ds3wiibt_context *ctx)
 {
-	//Turn OFF the LED and Rumble
-	ds3wiibt_set_led(ctx, 0);
-	ds3wiibt_set_rumble(ctx, 0x00, 0x00, 0x00, 0x00);
-	ds3wiibt_send_ledsrumble(ctx);
-	if (ds3wiibt_is_connected(ctx)) {
-		if (ctx->ctrl_pcb) l2ca_disconnect_req(ctx->ctrl_pcb, l2ca_disconnect_cfm_cb);
-		if (ctx->data_pcb) l2ca_disconnect_req(ctx->data_pcb, l2ca_disconnect_cfm_cb);
-	} else {
-		if (ctx->ctrl_pcb) l2cap_close(ctx->ctrl_pcb);
-		if (ctx->data_pcb) l2cap_close(ctx->data_pcb);
-		ctx->ctrl_pcb = NULL;
-		ctx->data_pcb = NULL;
+	if (ctx->status == DS3WIIBT_STATUS_CONNECTED) {
+		//We have only to request the disconnection of the DATA channel
+		l2ca_disconnect_req(ctx->data_pcb, l2ca_disconnect_cfm_cb);
+		ctx->status = DS3WIIBT_STATUS_DISCONNECTING;
 	}
-	while (ds3wiibt_is_connected(ctx)) usleep(50);
 }
 
 static err_t l2ca_recv_cb(void *arg, struct l2cap_pcb *pcb, struct pbuf *p, err_t err)
@@ -129,8 +108,7 @@ static err_t l2ca_recv_cb(void *arg, struct l2cap_pcb *pcb, struct pbuf *p, err_
 			if (ctx->status == DS3WIIBT_STATUS_DISCONNECTED) {
 				send_output_report(ctx);
 				ctx->status = DS3WIIBT_STATUS_CONNECTED;
-				if (ctx->connect_cb != NULL) {
-					//Notify the user
+				if (ctx->connect_cb) {
 					ctx->connect_cb(ctx->usrdata);
 				}
 			}
@@ -157,9 +135,13 @@ static err_t l2ca_connect_ind_cb(void *arg, struct l2cap_pcb *pcb, err_t err)
 	
 	if (l2cap_psm(pcb) == HIDP_PSM) {
 		/* Control PSM is connected */
+		l2cap_disconnect_ind(ctx->ctrl_pcb, l2ca_disconnect_ind_cb);
+		l2cap_timeout_ind(ctx->ctrl_pcb, l2ca_timeout_ind_cb);
 		l2cap_recv(ctx->ctrl_pcb, l2ca_recv_cb);
 	} else if (l2cap_psm(pcb) == INTR_PSM) {
 		/* Both Control PSM and Data PSM are connected */
+		l2cap_disconnect_ind(ctx->data_pcb, l2ca_disconnect_ind_cb);
+		l2cap_timeout_ind(ctx->data_pcb, l2ca_timeout_ind_cb);
 		l2cap_recv(ctx->data_pcb, l2ca_recv_cb);
 		set_operational(ctx);
 	}
@@ -171,7 +153,10 @@ static err_t l2ca_disconnect_ind_cb(void *arg, struct l2cap_pcb *pcb, err_t err)
 	struct ds3wiibt_context *ctx = (struct ds3wiibt_context *)arg;
 	if (ctx == NULL || pcb == NULL) return -1;
 	
-	LOG("l2ca_disconnect_ind_cb, PSM: 0x%02X\n", l2cap_psm(pcb));
+	//LOG("l2ca_disconnect_ind_cb, PSM: 0x%02X\n", l2cap_psm(pcb));
+	
+	//We have received a disconnect request
+	ctx->status = DS3WIIBT_STATUS_DISCONNECTING;
 	
 	switch (l2cap_psm(pcb))	{
 	case HIDP_PSM:
@@ -183,29 +168,14 @@ static err_t l2ca_disconnect_ind_cb(void *arg, struct l2cap_pcb *pcb, err_t err)
 		ctx->data_pcb = NULL;
 		break;
 	}
-	
-	//If the Data and Control PSMs are disconnected, listen for an incoming connection again
+
 	if ((ctx->ctrl_pcb == NULL) && (ctx->data_pcb == NULL)) {
-		
 		ctx->status = DS3WIIBT_STATUS_DISCONNECTED;
-		if (ctx->disconnect_cb != NULL) ctx->disconnect_cb(ctx->usrdata);
-		
-		ctx->ctrl_pcb = l2cap_new();
-		ctx->data_pcb = l2cap_new();
-		
-		l2cap_arg(ctx->ctrl_pcb, ctx);
-		l2cap_arg(ctx->data_pcb, ctx);
-		
-		l2cap_disconnect_ind(ctx->ctrl_pcb, l2ca_disconnect_ind_cb);
-		l2cap_disconnect_ind(ctx->data_pcb, l2ca_disconnect_ind_cb);
-		
-		l2cap_timeout_ind(ctx->ctrl_pcb, l2ca_timeout_ind_cb);
-		l2cap_timeout_ind(ctx->data_pcb, l2ca_timeout_ind_cb);
-
-		l2cap_recv(ctx->ctrl_pcb, l2ca_recv_cb);
-		l2cap_recv(ctx->data_pcb, l2ca_recv_cb);
+		if (ctx->disconnect_cb) {
+			ctx->disconnect_cb(ctx->usrdata);
+		}
+		ds3wiibt_listen(ctx);
 	}
-
 	return ERR_OK;
 }
 
@@ -214,7 +184,7 @@ static err_t l2ca_disconnect_cfm_cb(void *arg, struct l2cap_pcb *pcb)
 	struct ds3wiibt_context *ctx = (struct ds3wiibt_context *)arg;
 	if (ctx == NULL || pcb == NULL) return -1;
 	
-	LOG("l2ca_disconnect_cfm_cb, PSM: 0x%02X\n", l2cap_psm(pcb));
+	//LOG("l2ca_disconnect_cfm_cb, PSM: 0x%02X\n", l2cap_psm(pcb));
 	
 	switch (l2cap_psm(pcb))	{
 	case HIDP_PSM:
@@ -226,13 +196,6 @@ static err_t l2ca_disconnect_cfm_cb(void *arg, struct l2cap_pcb *pcb)
 		ctx->data_pcb = NULL;
 		break;
 	}
-
-	//User has finished it, so don't listen again
-	if ((ctx->ctrl_pcb == NULL) && (ctx->data_pcb == NULL)) {
-		ctx->status = DS3WIIBT_STATUS_DISCONNECTED;
-		if (ctx->disconnect_cb != NULL) ctx->disconnect_cb(ctx->usrdata);
-	}
-
 	return ERR_OK;
 }
 
@@ -241,7 +204,7 @@ static err_t l2ca_timeout_ind_cb(void *arg, struct l2cap_pcb *pcb, err_t err)
 	struct ds3wiibt_context *ctx = (struct ds3wiibt_context *)arg;
 	if (ctx == NULL || pcb == NULL) return -1;
 	
-	LOG("l2ca_timeout_ind_cb, PSM: 0x%02X\n", l2cap_psm(pcb));
+	//LOG("l2ca_timeout_ind_cb, PSM: 0x%02X\n", l2cap_psm(pcb));
 
 	//Disconnect?
 	switch (l2cap_psm(pcb))	{
