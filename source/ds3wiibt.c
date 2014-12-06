@@ -72,6 +72,7 @@ void ds3wiibt_listen(struct ds3wiibt_context *ctx)
 {
 	u32 level = IRQ_Disable();
 	if (ctx->status == DS3WIIBT_STATUS_DISCONNECTED) {
+		ctx->status = DS3WIIBT_STATUS_LISTENING;
 		ctx->ctrl_pcb = l2cap_new();
 		ctx->data_pcb = l2cap_new();
 		l2cap_arg(ctx->ctrl_pcb, ctx);
@@ -105,7 +106,7 @@ static err_t l2ca_recv_cb(void *arg, struct l2cap_pcb *pcb, struct pbuf *p, err_
 	case HIDP_PSM:
 		switch (rd[0]) {
 		case 0x00:
-			if (ctx->status == DS3WIIBT_STATUS_DISCONNECTED) {
+			if (ctx->status == DS3WIIBT_STATUS_LISTENING) {
 				send_output_report(ctx);
 				ctx->status = DS3WIIBT_STATUS_CONNECTED;
 				if (ctx->connect_cb) {
