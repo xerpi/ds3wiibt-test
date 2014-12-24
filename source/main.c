@@ -7,8 +7,9 @@
 #include "ds3wiibt.h"
 #include "utils.h"
 
-//Controller's MAC: 00:24:33:63:4B:6B
-struct bd_addr addr = {.addr = {0x6B, 0x4B, 0x63, 0x33, 0x24, 0x00}};
+//Controller's MAC 1 : 00:24:33:63:4B:6B
+//Controller's MAC 2 : 00:06:F7:4F:97:5C
+struct bd_addr addr = {.addr = {0x5C, 0x97, 0x4F, 0xF7, 0x06, 0x00}};
 //struct bd_addr addr = {.addr = {0x00, 0x24, 0x33, 0x63, 0x4B, 0x6B}};
 
 static void print_data(struct ds3wiibt_input *inp);

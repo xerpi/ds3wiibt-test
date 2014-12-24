@@ -2,7 +2,7 @@
 #define ds3wiibt_H
 
 #include <gccore.h>
-#include <bte/l2cap.h>
+#include "l2cap.h"
 
 #undef LOG
 #define LOG printf

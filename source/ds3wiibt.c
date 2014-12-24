@@ -3,8 +3,8 @@
 #include <unistd.h>
 #include <ogc/machine/processor.h>
 #include <bte/bte.h>
-#include <bte/l2cap.h>
-#include <bte/btpbuf.h>
+#include "hci.h"
+#include "btpbuf.h"
 #include "ds3wiibt.h"
 
 static const unsigned char led_pattern[] = {
